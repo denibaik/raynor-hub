@@ -177,9 +177,10 @@ local function SetMinimized(state)
     Main.Visible    = not state
     MiniGui.Enabled = state
 end
-MinBtn.MouseButton1Click:Connect(function() SetMinimized(false) end)
-MinBtn.MouseButton1Click:Connect(function() SetMinimized(false) end)
-MinBtn.MouseButton1Click:Connect(function() SetMinimized(false) end)
+-- 🔵 Tombol – (minimize): sembunyikan GUI utama, tampilkan floating button
+MinBtn.MouseButton1Click:Connect(function() SetMinimized(true) end)
+-- 🐣 Floating button: tampilkan kembali GUI utama
+MiniBtn.MouseButton1Click:Connect(function() SetMinimized(false) end)
 
 -- ── Scrollable Content ────────────────────────────────────────
 local ScrollFrame = Instance.new("ScrollingFrame", Main)
@@ -618,8 +619,6 @@ ToggleBtn.MouseButton1Click:Connect(function()
         busy = false
     end
 end)
-
-MinBtn.MouseButton1Click:Connect(function() SetMinimized(true) end)
 
 PopulateDropdown()
 print("[RaynorHub v1.0] ✅ GUI loaded!")
