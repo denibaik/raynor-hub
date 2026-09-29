@@ -47,6 +47,16 @@ local function TeleportTo(pos)
     if hrp then hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end
 end
 
+-- Teleport tepat ke posisi egg (untuk pickup jarak dekat)
+local function TeleportToEgg(pos)
+    local hrp = LocalPlayer.Character
+        and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        -- Teleport dengan offset kecil agar pasti dalam MaxActivationDistance
+        hrp.CFrame = CFrame.new(pos + Vector3.new(2, 1, 2))
+    end
+end
+
 local function GetActiveEggs()
     local t = {}
     for _, e in ipairs(EGG_OPTIONS) do
@@ -63,14 +73,29 @@ local function FindPickupableEgg()
         if whitelist[obj.Name] then
             local pp = obj:FindFirstChild("Pickup", true)
             if pp and pp.Enabled then
+                -- Prioritas posisi: Part induk PP > GetPivot > child BasePart pertama
                 local pos
-                pcall(function() pos = obj:GetPivot().Position end)
+                pcall(function()
+                    if pp.Parent:IsA("BasePart") then
+                        pos = pp.Parent.Position          -- posisi Part yang punya PP
+                    else
+                        pos = obj:GetPivot().Position     -- fallback ke pivot model
+                    end
+                end)
+                if not pos then
+                    pcall(function()
+                        for _, d in pairs(obj:GetDescendants()) do
+                            if d:IsA("BasePart") then pos = d.Position break end
+                        end
+                    end)
+                end
                 if pos then return obj, pp, pos end
             end
         end
     end
     return nil, nil, nil
 end
+
 
 -- ============================================================
 --  DESTROY OLD GUIs
@@ -547,19 +572,35 @@ local function RunAuto()
         busy = true
         SetStatus("🥚  "..egg.Name.." ditemukan!", Color3.fromRGB(255,200,0))
 
-        -- Teleport ke egg & pickup
-        TeleportTo(pos); task.wait(0.5)
-        local ok = pcall(function() fireproximityprompt(pp) end)
-        if not ok then
-            SetStatus("❌  Pickup gagal", Color3.fromRGB(255,80,80))
-            busy = false; continue
-        end
-        task.wait(pp.HoldDuration + HOLD_BUFFER)
+        -- Teleport TEPAT ke posisi PP egg & pickup (dengan retry)
+        local picked = false
+        for attempt = 1, 3 do
+            -- Offset makin kecil per retry agar makin dekat
+            local offset = Vector3.new(2 - attempt*0.5, 1, 2 - attempt*0.5)
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then hrp.CFrame = CFrame.new(pos + offset) end
+            task.wait(0.4)
 
-        if #Basket:GetChildren() == 0 then
-            SetStatus("⚠  Basket kosong setelah pickup", Color3.fromRGB(255,180,0))
+            local ok = pcall(function() fireproximityprompt(pp) end)
+            if not ok then
+                SetStatus("❌  Pickup error attempt "..attempt, Color3.fromRGB(255,80,80))
+                continue
+            end
+            task.wait(pp.HoldDuration + HOLD_BUFFER)
+
+            if #Basket:GetChildren() > 0 then
+                picked = true
+                break
+            end
+            SetStatus("⚠  Retry "..attempt.."/3...", Color3.fromRGB(255,180,0))
+            task.wait(0.3)
+        end
+
+        if not picked then
+            SetStatus("❌  Gagal pickup setelah 3x retry", Color3.fromRGB(255,80,80))
             busy = false; continue
         end
+
 
         if currentMode == "joki" then
             -- Antar ke target
