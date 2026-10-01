@@ -5,13 +5,18 @@
     ╚══════════════════════════════════════════╝
 --]]
 
-local Players      = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local LocalPlayer  = Players.LocalPlayer
-local RS           = game:GetService("ReplicatedStorage")
-local BasketDropRE = RS.Remotes.Game.BasketDrop
-local EggPlacedRE  = RS.Remotes.Game.EggPlaced
-local Basket       = LocalPlayer:WaitForChild("Basket")
+-- ⚡ Kill semua instance lama saat inject ulang
+if _G.RaynorHubKill then _G.RaynorHubKill() end
+local _alive = true
+_G.RaynorHubKill = function() _alive = false end
+
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer      = Players.LocalPlayer
+local RS               = game:GetService("ReplicatedStorage")
+local BasketDropRE     = RS.Remotes.Game.BasketDrop
+local Basket           = LocalPlayer:WaitForChild("Basket")
 
 -- ============================================================
 --  CONFIG
@@ -37,24 +42,62 @@ local jokiTarget   = nil
 local currentMode  = "self"   -- "self" | "joki"
 local dropdownOpen = false
 local busy         = false
+local myPlotCenter = nil  -- cache posisi plot sendiri
 
 -- ============================================================
 --  HELPERS
 -- ============================================================
+
+-- Cari posisi tengah plot milik LocalPlayer
+local function GetMyPlotCenter()
+    if myPlotCenter then return myPlotCenter end
+    local plots = workspace:FindFirstChild("Plots")
+    if not plots then return nil end
+
+    local plotList = plots:GetChildren()
+
+    for _, plot in ipairs(plotList) do
+        local bp = plot:FindFirstChild("Baseplate")
+        if bp then
+            -- Prioritas 1: ObjectValue Data.Owner (paling akurat & tidak delay)
+            local data = plot:FindFirstChild("Data")
+            local ownerVal = data and data:FindFirstChild("Owner")
+            if ownerVal and ownerVal.Value == LocalPlayer then
+                myPlotCenter = bp.Position
+                return myPlotCenter
+            end
+        end
+    end
+
+    -- Prioritas 2: fallback ke attribute (kalau ObjectValue belum ter-set)
+    for _, plot in ipairs(plotList) do
+        local bp = plot:FindFirstChild("Baseplate")
+        if bp then
+            local ownerAttr = plot:GetAttribute("NestsOwnerLoaded") or plot:GetAttribute("Owner")
+            if tostring(ownerAttr) == tostring(LocalPlayer.UserId) then
+                myPlotCenter = bp.Position
+                return myPlotCenter
+            end
+        end
+    end
+
+    -- Prioritas 3: fallback kalau hanya ada 1 plot di map
+    if #plotList == 1 then
+        local bp = plotList[1]:FindFirstChild("Baseplate")
+        if bp then
+            myPlotCenter = bp.Position
+            return myPlotCenter
+        end
+    end
+
+    return nil
+end
+
+
 local function TeleportTo(pos)
     local hrp = LocalPlayer.Character
         and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if hrp then hrp.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end
-end
-
--- Teleport tepat ke posisi egg (untuk pickup jarak dekat)
-local function TeleportToEgg(pos)
-    local hrp = LocalPlayer.Character
-        and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        -- Teleport dengan offset kecil agar pasti dalam MaxActivationDistance
-        hrp.CFrame = CFrame.new(pos + Vector3.new(2, 1, 2))
-    end
 end
 
 local function GetActiveEggs()
@@ -69,28 +112,43 @@ local function FindPickupableEgg()
     local whitelist = GetActiveEggs()
     local rendered  = workspace:FindFirstChild("RenderedEggs")
     if not rendered then return nil, nil, nil end
+
     for _, obj in pairs(rendered:GetChildren()) do
-        if whitelist[obj.Name] then
-            local pp = obj:FindFirstChild("Pickup", true)
-            if pp and pp.Enabled then
-                -- Prioritas posisi: Part induk PP > GetPivot > child BasePart pertama
+        if not whitelist[obj.Name] then continue end
+
+        -- Cari PP di semua descendant (bukan hanya FindFirstChild)
+        local bestPP, bestPos = nil, nil
+        for _, d in pairs(obj:GetDescendants()) do
+            if d:IsA("ProximityPrompt") and d.Enabled then
                 local pos
                 pcall(function()
-                    if pp.Parent:IsA("BasePart") then
-                        pos = pp.Parent.Position          -- posisi Part yang punya PP
+                    -- Prioritas: parent BasePart → pivot model → child BasePart
+                    if d.Parent:IsA("BasePart") then
+                        pos = d.Parent.Position
                     else
-                        pos = obj:GetPivot().Position     -- fallback ke pivot model
+                        pos = obj:GetPivot().Position
                     end
                 end)
                 if not pos then
                     pcall(function()
-                        for _, d in pairs(obj:GetDescendants()) do
-                            if d:IsA("BasePart") then pos = d.Position break end
+                        for _, part in pairs(obj:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                pos = part.Position
+                                break
+                            end
                         end
                     end)
                 end
-                if pos then return obj, pp, pos end
+                if pos then
+                    bestPP  = d
+                    bestPos = pos
+                    break
+                end
             end
+        end
+
+        if bestPP and bestPos then
+            return obj, bestPP, bestPos
         end
     end
     return nil, nil, nil
@@ -117,8 +175,8 @@ ScreenGui.Parent         = LocalPlayer.PlayerGui
 -- Main Frame
 local Main = Instance.new("Frame", ScreenGui)
 Main.Name             = "Main"
-Main.Size             = UDim2.new(0, 320, 0, 480)
-Main.Position         = UDim2.new(0.5, -160, 0.5, -240)
+Main.Size             = UDim2.new(0, 290, 0, 430)
+Main.Position         = UDim2.new(0.5, -145, 0.5, -215)
 Main.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
 Main.BorderSizePixel  = 0
 Main.Active           = true
@@ -126,6 +184,57 @@ Main.Draggable        = true
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 8)
 local mainStroke = Instance.new("UIStroke", Main)
 mainStroke.Color = Color3.fromRGB(255, 140, 0); mainStroke.Thickness = 1.5
+
+-- ── Resize Handle (bottom-right corner) ───────────────────────
+local MIN_SIZE = Vector2.new(260, 320)
+local MAX_SIZE = Vector2.new(600, 800)
+
+local ResizeHandle = Instance.new("TextButton", Main)
+ResizeHandle.Name             = "ResizeHandle"
+ResizeHandle.Size             = UDim2.new(0, 18, 0, 18)
+ResizeHandle.Position         = UDim2.new(1, -18, 1, -18)
+ResizeHandle.BackgroundColor3 = Color3.fromRGB(255, 140, 0)
+ResizeHandle.BackgroundTransparency = 0.3
+ResizeHandle.BorderSizePixel  = 0
+ResizeHandle.Text             = "◢"
+ResizeHandle.TextColor3       = Color3.new(1, 1, 1)
+ResizeHandle.TextSize         = 12
+ResizeHandle.Font             = Enum.Font.GothamBold
+ResizeHandle.ZIndex           = 25
+ResizeHandle.AutoButtonColor  = false
+Instance.new("UICorner", ResizeHandle).CornerRadius = UDim.new(0, 4)
+
+do
+    local resizing = false
+    local startPos, startSize
+
+    ResizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            resizing  = true
+            startPos  = input.Position
+            startSize = Main.AbsoluteSize
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if not resizing then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+            and input.UserInputType ~= Enum.UserInputType.Touch then return end
+
+        local delta = input.Position - startPos
+        local newW = math.clamp(startSize.X + delta.X, MIN_SIZE.X, MAX_SIZE.X)
+        local newH = math.clamp(startSize.Y + delta.Y, MIN_SIZE.Y, MAX_SIZE.Y)
+        Main.Size = UDim2.new(0, newW, 0, newH)
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            resizing = false
+        end
+    end)
+end
 
 -- ── Title Bar ────────────────────────────────────────────────
 local TitleBar = Instance.new("Frame", Main)
@@ -170,6 +279,11 @@ CloseBtn.Text = "✕"; CloseBtn.TextColor3 = Color3.new(1,1,1)
 CloseBtn.TextSize = 12; CloseBtn.Font = Enum.Font.GothamBold
 Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0,6)
 CloseBtn.MouseButton1Click:Connect(function()
+    -- ⚠️ Matikan loop auto SEBELUM destroy GUI, kalau tidak RunAuto tetap
+    -- jalan di background tanpa GUI (zombie thread).
+    jokiEnabled = false
+    busy = false
+    _G.RaynorHubKill()
     ScreenGui:Destroy()
     local mg = LocalPlayer.PlayerGui:FindFirstChild("RaynorHubMini")
     if mg then mg:Destroy() end
@@ -521,9 +635,10 @@ local function SetStatus(text, color)
 end
 
 local function RunAuto()
-    while jokiEnabled do
+    while jokiEnabled and _alive do
         task.wait(LOOP_DELAY)
-        if not jokiEnabled then break end
+        if not jokiEnabled or not _alive then break end
+
         if busy then continue end
 
         -- Validasi egg tersedia
@@ -555,8 +670,20 @@ local function RunAuto()
                     end
                 end
             else
-                -- Self mode: egg sudah di basket, biarkan user tanam sendiri
-                SetStatus("🧺  Egg di basket, silakan tanam!", Color3.fromRGB(80,220,80))
+                -- Self mode: teleport ke plot sendiri dan drop
+                local plotPos = GetMyPlotCenter()
+                if plotPos then
+                    SetStatus("🏡  Menuju plot sendiri...", Color3.fromRGB(100,200,255))
+                    TeleportTo(plotPos); task.wait(0.8)
+                    BasketDropRE:FireServer(); task.wait(0.5)
+                    if #Basket:GetChildren() == 0 then
+                        SetStatus("✅  Egg ditanam di plot!", Color3.fromRGB(80,220,80))
+                    else
+                        SetStatus("⚠  Slot penuh? Egg di-drop.", Color3.fromRGB(255,180,0))
+                    end
+                else
+                    SetStatus("⚠  Plot tidak ditemukan!", Color3.fromRGB(255,80,80))
+                end
             end
             busy = false
             continue
@@ -571,39 +698,70 @@ local function RunAuto()
 
         busy = true
         SetStatus("🥚  "..egg.Name.." ditemukan!", Color3.fromRGB(255,200,0))
+        print("[RaynorHub] Found: "..egg.Name.." PP.Enabled="..tostring(pp.Enabled).." Pos="..tostring(pos))
 
-        -- Teleport TEPAT ke posisi PP egg & pickup (dengan retry)
+        -- Teleport & pickup dengan retry
         local picked = false
-        for attempt = 1, 3 do
-            -- Offset makin kecil per retry agar makin dekat
-            local offset = Vector3.new(2 - attempt*0.5, 1, 2 - attempt*0.5)
+        local offsets = {
+            Vector3.new(2, 1, 2),
+            Vector3.new(-2, 1, 2),
+            Vector3.new(0, 1, 3),
+            Vector3.new(3, 1, 0),
+            Vector3.new(0, 2, 0),  -- tepat di atas (untuk egg di high ground)
+        }
+
+        for attempt = 1, #offsets do
+            -- Cek PP masih ada dan enabled
+            if not pp or not pp.Parent or not pp.Enabled then
+                -- PP hilang (diambil orang lain) — cari egg baru
+                SetStatus("⚠  "..egg.Name.." diambil orang lain!", Color3.fromRGB(255,180,0))
+                break
+            end
+
+            -- Recalculate posisi PP (mungkin egg bergerak)
+            pcall(function()
+                if pp.Parent:IsA("BasePart") then
+                    pos = pp.Parent.Position
+                end
+            end)
+
             local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then hrp.CFrame = CFrame.new(pos + offset) end
-            task.wait(0.4)
+            if hrp then hrp.CFrame = CFrame.new(pos + offsets[attempt]) end
+            task.wait(0.5)
+
+            -- Cek jarak setelah teleport
+            local dist = 999
+            pcall(function()
+                dist = (hrp.Position - pos).Magnitude
+            end)
+            SetStatus("🎯  Attempt "..attempt.." jarak="..math.floor(dist).."s", Color3.fromRGB(200,200,100))
+            print("[RaynorHub] Attempt "..attempt.." dist="..math.floor(dist).." offset="..tostring(offsets[attempt]))
 
             local ok = pcall(function() fireproximityprompt(pp) end)
             if not ok then
-                SetStatus("❌  Pickup error attempt "..attempt, Color3.fromRGB(255,80,80))
+                SetStatus("❌  fireproximityprompt error", Color3.fromRGB(255,80,80))
+                task.wait(0.3)
                 continue
             end
             task.wait(pp.HoldDuration + HOLD_BUFFER)
 
             if #Basket:GetChildren() > 0 then
                 picked = true
+                print("[RaynorHub] ✅ Picked up "..egg.Name.." on attempt "..attempt)
                 break
             end
-            SetStatus("⚠  Retry "..attempt.."/3...", Color3.fromRGB(255,180,0))
             task.wait(0.3)
         end
 
         if not picked then
-            SetStatus("❌  Gagal pickup setelah 3x retry", Color3.fromRGB(255,80,80))
+            SetStatus("❌  "..egg.Name.." gagal pickup (PP disabled/taken)", Color3.fromRGB(255,80,80))
+            print("[RaynorHub] ❌ Failed to pick up "..egg.Name)
             busy = false; continue
         end
 
 
         if currentMode == "joki" then
-            -- Antar ke target
+            -- Antar ke target player
             SetStatus("🚀  Antar ke "..jokiTarget.Name.."...", Color3.fromRGB(100,200,255))
             local tHRP = jokiTarget.Character
                 and jokiTarget.Character:FindFirstChild("HumanoidRootPart")
@@ -620,9 +778,24 @@ local function RunAuto()
                 BasketDropRE:FireServer()
             end
         else
-            -- Self mode: sudah pickup, beri tahu user
-            SetStatus("✅  "..egg.Name.." ada di basket!", Color3.fromRGB(80,220,80))
+            -- Self mode: teleport ke plot sendiri, lalu drop → server auto-plant ke slot
+            local plotPos = GetMyPlotCenter()
+            if plotPos then
+                SetStatus("🏡  Menuju plot sendiri...", Color3.fromRGB(100,200,255))
+                TeleportTo(plotPos); task.wait(0.8)
+                BasketDropRE:FireServer(); task.wait(0.5)
+                if #Basket:GetChildren() == 0 then
+                    SetStatus("✅  "..egg.Name.." ditanam di plot!", Color3.fromRGB(80,220,80))
+                else
+                    -- Mungkin slot plot penuh, drop di sini saja
+                    SetStatus("⚠  Slot plot penuh? Egg di-drop.", Color3.fromRGB(255,180,0))
+                    BasketDropRE:FireServer()
+                end
+            else
+                SetStatus("⚠  Plot tidak ditemukan!", Color3.fromRGB(255,80,80))
+            end
         end
+
 
         busy = false
     end
