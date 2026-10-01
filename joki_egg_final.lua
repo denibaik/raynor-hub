@@ -246,10 +246,12 @@ local fix = Instance.new("Frame", TitleBar)
 fix.Size = UDim2.new(1,0, 0.5,0); fix.Position = UDim2.new(0,0,0.5,0)
 fix.BackgroundColor3 = Color3.fromRGB(25,25,30); fix.BorderSizePixel = 0
 
-local TitleIcon = Instance.new("TextLabel", TitleBar)
-TitleIcon.Size = UDim2.new(0,30,1,0); TitleIcon.Position = UDim2.new(0,8,0,0)
-TitleIcon.BackgroundTransparency = 1; TitleIcon.Text = "🐣"
-TitleIcon.TextSize = 18; TitleIcon.Font = Enum.Font.GothamBold
+local TitleIcon = Instance.new("ImageLabel", TitleBar)
+TitleIcon.Size = UDim2.new(0,26,0,26); TitleIcon.Position = UDim2.new(0,8,0.5,-13)
+TitleIcon.BackgroundTransparency = 1
+TitleIcon.Image = "rbxassetid://127195904145960"
+TitleIcon.ScaleType = Enum.ScaleType.Fit
+Instance.new("UICorner", TitleIcon).CornerRadius = UDim.new(1, 0)
 
 local TitleLabel = Instance.new("TextLabel", TitleBar)
 TitleLabel.Size = UDim2.new(1,-80,1,0); TitleLabel.Position = UDim2.new(0,38,0,0)
@@ -303,14 +305,19 @@ MiniBtn.Size             = UDim2.new(0, 54, 0, 54)
 MiniBtn.Position         = UDim2.new(0, 12, 0.5, -27)
 MiniBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
 MiniBtn.BorderSizePixel  = 0
-MiniBtn.Text             = "🐣"
-MiniBtn.TextSize         = 26
-MiniBtn.Font             = Enum.Font.GothamBold
+MiniBtn.Text             = ""
 MiniBtn.Active           = true
 MiniBtn.Draggable        = true
 Instance.new("UICorner", MiniBtn).CornerRadius = UDim.new(1, 0)
 local miniStroke = Instance.new("UIStroke", MiniBtn)
 miniStroke.Color = Color3.fromRGB(255,140,0); miniStroke.Thickness = 2.5
+
+local MiniIcon = Instance.new("ImageLabel", MiniBtn)
+MiniIcon.Size = UDim2.new(0, 34, 0, 34); MiniIcon.Position = UDim2.new(0.5, -17, 0.5, -17)
+MiniIcon.BackgroundTransparency = 1
+MiniIcon.Image = "rbxassetid://127195904145960"
+MiniIcon.ScaleType = Enum.ScaleType.Fit
+Instance.new("UICorner", MiniIcon).CornerRadius = UDim.new(1, 0)
 
 local function SetMinimized(state)
     Main.Visible    = not state
